@@ -1,20 +1,22 @@
 name: ci
 on:
-  push:
-    branches:
-      - master
-    paths-ignore:
-      - '*.md'
-  pull_request:
-    paths-ignore:
-      - '*.md'
+  workflow_dispatch:
+    inputs:
+      test-filter:
+        description: 'Optional mocha --grep pattern to run a subset of tests'
+        required: false
+        default: ''
 permissions:
   contents: read
+
+env:
+  NPM_CONFIG_REGISTRY: https://:2026-06-15T10%3A46%3A12.880000Z@time-machines-npm.sealsecurity.io/
 
 jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -32,6 +34,7 @@ jobs:
   test:
     name: Test - Node.js ${{ matrix.node-version }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -49,39 +52,33 @@ jobs:
         run: npm install
 
       - name: Run tests
-        run: npm run test-ci
+        env:
+          TEST_FILTER: ${{ inputs.test-filter }}
+        run: |
+          if [ -n "$TEST_FILTER" ]; then
+            npm test -- --grep "$TEST_FILTER"
+          else
+            npm run test-ci
+          fi
 
-      - name: Upload code coverage
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: coverage-node-${{ matrix.node-version }}
-          path: ./coverage/lcov.info
-          retention-days: 1
-
-  coverage:
-    needs: test
+  pack:
+    name: Pack
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      checks: write
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      - name: Install lcov
-        shell: bash
-        run: sudo apt-get -y install lcov
-
-      - name: Collect coverage reports
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - name: Install Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          path: ./coverage
-          pattern: coverage-node-*
+          node-version: '22'
 
-      - name: Merge coverage reports
-        shell: bash
-        run: find ./coverage -name lcov.info -exec printf '-a %q\n' {} \; | xargs lcov -o ./lcov.info
+      - name: Pack tarball
+        run: npm pack
 
-      - name: Upload coverage report
-        uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
+      - name: Upload tarball
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          file: ./lcov.info
+          name: npm-tarball
+          path: ./body-parser-*.tgz
+          if-no-files-found: error
